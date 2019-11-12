@@ -1,6 +1,7 @@
 import os
 from cryptography.hazmat.primitives import hashes, padding, ciphers
 from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 import base64
 import binascii
 
@@ -17,33 +18,21 @@ class Encryption(object):
         self._backend = default_backend()
         self._block_size_bytes = int(ciphers.algorithms.AES.block_size/8)
         if in_key is None:
-            self._key = os.urandom(self._block_size_bytes)
+            self._key = AESGCM.generate_key(bit_length=128)
         else:
             self._key = in_key
+        self._aesgcm = AESGCM(self._key)
 
     def encrypt(self, msg):
-        padder = padding.PKCS7(ciphers.algorithms.AES.block_size).padder()
-        padded_msg = padder.update(msg) + padder.finalize()
-        iv = os.urandom(self._block_size_bytes)
-        encryptor = ciphers.Cipher(ciphers.algorithms.AES(self._key),
-                                   ciphers.modes.CBC(iv),
-                                   self._backend).encryptor()
-        _ciphertext = iv + encryptor.update(padded_msg) + encryptor.finalize()
-        return _ciphertext
+        nonce = os.urandom(self._block_size_bytes)
+        ct = self._aesgcm.encrypt(nonce, msg, None) + nonce
+        return ct
     
     def decrypt(self, ctx):
-        iv, ctx = ctx[:self._block_size_bytes], ctx[self._block_size_bytes:]
-        unpadder = padding.PKCS7(ciphers.algorithms.AES.block_size).unpadder()
-        decryptor = ciphers.Cipher(ciphers.algorithms.AES(self._key),
-                                   ciphers.modes.CBC(iv),
-                                   self._backend).decryptor()        
-        padded_msg = decryptor.update(ctx) + decryptor.finalize()
-        try:
-            msg = unpadder.update(padded_msg) + unpadder.finalize()
-            return msg  # Successful decryption
-        except ValueError:
-            return False  # Error!!
-
+        nonce = ctx[:self._block_size_bytes]
+        ct = ctx[self._block_size_bytes:]
+        msg = self._aesgcm.decrypt(nonce, ct, None)
+        return msg
     
 
         
